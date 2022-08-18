@@ -1,0 +1,121 @@
+---
+title: "Monkeypox Map"
+author: "Dhihram Tenrisau"
+date: '2022-08-13'
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+# Packages
+
+```{r setup, message=FALSE, warning=FALSE}
+library(rgdal)
+library(RCurl)
+library(tidyverse)
+library(dplyr)
+library(broom)
+library(sp)
+library(ggmap)
+library(viridis)
+library(scales)
+library(mapsf)
+library(sf)
+library(RColorBrewer)
+library(plotly)
+```
+
+# Data Preparation
+
+## Import the Map
+
+In this project, I will use the shp file from <a href="https://www.igismap.com/download-world-shapefile-free-country-borders-continents/">here</a>
+
+```{r}
+setwd("C:/Users/dhihr/Downloads/template paskhas")
+dunia <- readOGR(dsn = 'world-administrative-boundaries' , layer = 'world-administrative-boundaries')
+summary(dunia@data)
+```
+
+## Using Our World in Data Dataset
+
+This data will use the dataset from <a href="https://ourworldindata.org/explorers/monkeypox?tab=map&facet=none&Metric=Confirmed+%26+suspected+cases&Frequency=Cumulative&Shown+by=Date+of+confirmation&country=~OWID_WRL">Our World in Data</a>
+```{r}
+x <- getURL("https://raw.githubusercontent.com/owid/monkeypox/main/owid-monkeypox-data.csv")
+MPX <- read.csv(text = x)
+MPX <- rename(MPX, name = location)
+MPX[is.na(MPX)] = 0
+summary(MPX)
+head(MPX)
+```
+
+## Cleaning the Data
+
+In this data 0 cases in a country will be changed to 0, in order to make the country uncolored
+
+```{r}
+agregat_MPX <- MPX %>% group_by(name) %>% summarise(total_kasus = sum(new_cases))
+agregat_MPX$name <- recode(agregat_MPX$name,  "United States" = "United States of America", 
+                           "United Kingdom" = "U.K. of Great Britain and Northern Ireland")
+agregat_MPX[is.na(agregat_MPX)] = 0
+agregat_MPX[agregat_MPX==0] <- NA
+agregat_MPX <- agregat_MPX %>% arrange(desc(total_kasus))
+peta_mpx <- merge(dunia, agregat_MPX)
+names(peta_mpx)
+```
+
+# Data Check
+
+Checking the agregate files from cleaning
+
+```{r}
+head(agregat_MPX)
+```
+
+# Combine shp file in two methods
+
+So do you can measure, which country was the biggest number in monkeypox infection?
+
+```{r}
+mycolours <- brewer.pal(5, "OrRd")
+spplot(peta_mpx,"total_kasus", par.settings = list(axis.line = list(col ="transparent")),
+       main = "Case MPX", cuts = 4, col ="gray", col.regions = mycolours)
+```
+
+# Epicurve of World Cases
+
+In this section, I made the Epidemiology Curve of monkeypox cases, based on daily cases and 7DMA cases.
+
+```{r}
+world_time <- filter(MPX, name == "World")
+world_time$date <- as.Date(world_time$date)
+x2 <- ggplot(world_time)  + 
+  geom_bar(aes(x=date, y=new_cases),stat="identity", fill="mediumpurple", alpha = 0.3)+
+  geom_line(aes(x=date, y=new_cases_smoothed),stat="identity",color="red", size = 1.5)+
+  labs(title= "Total dan Tren Global Monkeypox",
+       x="Tanggal",y="Total Kasus") + scale_x_date(date_breaks = "14 day", date_labels = "%d %b") + theme_minimal() + theme(plot.title = element_text(size=15, hjust=0.5))
+
+x2 + geom_text(x=as.Date("2022-08-11"), y=1100, label="7DMA Cases", color = "red", size = 4) + 
+  geom_text(x=as.Date("2022-08-11"), y=2000, label="Daily Cases", color = "mediumpurple", size = 4) 
+```
+
+# Method 2, using <a href="https://riatelab.github.io/mapsf/">mapsf</a>
+
+```{r}
+setwd("C:/Users/dhihr/Downloads/template paskhas/world-administrative-boundaries")
+mtq <- st_read("world-administrative-boundaries.shp")
+mtq <- left_join(mtq, agregat_MPX)
+mtq$total_kasus[is.na(mtq$total_kasus)] = 0
+mf_map(x = mtq)
+head(mtq)
+```
+
+# Method 3, using ggplot
+```{r}
+ggplot(data = mtq) + geom_sf()
+ggplot(data = mtq) + geom_sf(color = "black", fill = "lightgreen")
+x <- ggplot(data = mtq) + geom_sf(aes(fill = total_kasus), color = "snow") + scale_fill_gradient(name = "Total Kasus", low = "deepskyblue", high = "royalblue", na.value="gray") +
+  theme_minimal() + theme(axis.text.x=element_blank())
+ggplotly(x)
+```
